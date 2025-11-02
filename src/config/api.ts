@@ -1,13 +1,14 @@
 import { Platform } from 'react-native';
 
-// Use localhost for Android emulator, 10.0.2.2 for Android emulator to localhost, or your machine's IP for physical devices
+const REPLIT_DOMAIN = process.env.EXPO_PUBLIC_REPLIT_DOMAIN || 'df572f05-a1de-446e-88e9-36ba39e31ed4-00-1ampnsphfoddl.pike.replit.dev';
+
 const API_BASE_URL = __DEV__
   ? Platform.select({
-      android: 'http://10.0.2.2:5000/api',
-      ios: 'http://localhost:5000/api',
-      default: 'http://localhost:5000/api',
+      android: 'http://10.0.2.2:3000/api',
+      ios: 'http://localhost:3000/api',
+      default: `https://${REPLIT_DOMAIN}/api`,
     })
-  : 'https://your-production-api.com/api';
+  : `https://${REPLIT_DOMAIN}/api`;
 
 export const API_ENDPOINTS = {
   TEST: `${API_BASE_URL}/test`,

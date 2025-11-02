@@ -19,6 +19,11 @@ class Database {
   public async init() {
     if (this.initialized) return;
     
+    if (typeof window === 'undefined') {
+      this.initialized = true;
+      return;
+    }
+    
     try {
       const expensesData = await AsyncStorage.getItem('@expenses');
       const groupsData = await AsyncStorage.getItem('@groups');
@@ -33,6 +38,8 @@ class Database {
   }
 
   private async saveData() {
+    if (typeof window === 'undefined') return;
+    
     try {
       await AsyncStorage.setItem('@expenses', JSON.stringify(this.expenses));
       await AsyncStorage.setItem('@groups', JSON.stringify(this.groups));
@@ -84,12 +91,18 @@ class Database {
   public async clearAll() {
     this.expenses = [];
     this.groups = [];
-    await AsyncStorage.clear();
+    if (typeof window !== 'undefined') {
+      await AsyncStorage.clear();
+    }
   }
 }
 
 // Create and initialize the database
 const database = Database.getInstance();
-database.init();
+
+// Only initialize on client-side (not during SSR)
+if (typeof window !== 'undefined') {
+  database.init();
+}
 
 export { database };

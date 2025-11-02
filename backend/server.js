@@ -14,26 +14,8 @@ const app = express();
 // Connect to MongoDB
 connectDB();
 
-// Middleware
-const allowedOrigins = [
-  'http://localhost:19006', // Expo web
-  'http://localhost:19000', // Expo dev client
-  'exp://', // Expo Go app
-  'http://192.168.*.*:8081', // Local network for physical devices
-  'http://10.0.2.2:8081', // Android emulator
-  'http://localhost:8081', // iOS simulator
-];
-
 app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.some(allowedOrigin => origin.startsWith(allowedOrigin))) {
-      callback(null, true);
-    } else {
-      console.log('CORS blocked for origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true,
   credentials: true
 }));
 
@@ -58,6 +40,6 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+app.listen(PORT, 'localhost', () => {
+  console.log(`Server is running on localhost:${PORT}`);
 });
