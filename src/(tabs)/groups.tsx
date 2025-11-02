@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Plus, Users, MapPin, Calendar, IndianRupee, MoveVertical as MoreVertical, X, CreditCard as Edit3, Trash2, UserPlus } from 'lucide-react-native';
 import { theme } from '../styles/theme';
+import { GroupService } from '../services/GroupService';
 
 interface Group {
   id: string;
@@ -76,11 +77,44 @@ const mockGroups: Group[] = [
 ];
 
 export default function GroupsScreen() {
-  const [groups, setGroups] = useState<Group[]>(mockGroups);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showGroupDetails, setShowGroupDetails] = useState<Group | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupDescription, setNewGroupDescription] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Load groups on component mount
+  useEffect(() => {
+    loadGroups();
+  }, []);
+
+  const loadGroups = async () => {
+    try {
+      const result = await GroupService.getUserGroups('currentUserId');
+      if (result.success && result.data) {
+        // Map the data to match our Group interface
+        const mappedGroups = result.data.map((group: any) => ({
+          id: group._id || group.id,
+          name: group.name,
+          description: group.description || '',
+          members: group.members?.map((m: any) => ({
+            id: m.userId || m.id,
+            name: m.name,
+            email: m.email,
+            dietary: m.dietary || 'both',
+            balance: m.balance || 0,
+          })) || [],
+          totalExpenses: group.totalExpenses || 0,
+          createdAt: group.createdAt ? new Date(group.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          type: group.type || 'general',
+        }));
+        setGroups(mappedGroups);
+      }
+    } catch (error) {
+      console.error('Error loading groups:', error);
+    }
+  };
 
   const getGroupIcon = (type: string) => {
     switch (type) {
@@ -95,28 +129,39 @@ export default function GroupsScreen() {
     }
   };
 
-  const createGroup = () => {
+  const createGroup = async () => {
     if (!newGroupName.trim()) {
       Alert.alert('Error', 'Please enter a group name');
       return;
     }
 
-    const newGroup: Group = {
-      id: Date.now().toString(),
-      name: newGroupName,
-      description: newGroupDescription,
-      members: [
-        { id: '1', name: 'You', email: 'you@email.com', dietary: 'both', balance: 0 },
-      ],
-      totalExpenses: 0,
-      createdAt: new Date().toISOString().split('T')[0],
-      type: 'general',
-    };
+    setLoading(true);
+    try {
+      const groupData = {
+        name: newGroupName,
+        description: newGroupDescription,
+        createdBy: 'currentUserId',
+        // Don't pass members here - let GroupService add the creator
+      };
 
-    setGroups([newGroup, ...groups]);
-    setNewGroupName('');
-    setNewGroupDescription('');
-    setShowCreateModal(false);
+      const result = await GroupService.createGroup(groupData);
+      
+      if (result.success) {
+        Alert.alert('Success', 'Group created successfully!');
+        setNewGroupName('');
+        setNewGroupDescription('');
+        setShowCreateModal(false);
+        // Reload groups to show the new one
+        await loadGroups();
+      } else {
+        throw new Error(result.error || 'Failed to create group');
+      }
+    } catch (error) {
+      console.error('Error creating group:', error);
+      Alert.alert('Error', 'Failed to create group. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getTotalBalance = (members: GroupMember[]) => {
@@ -236,8 +281,14 @@ export default function GroupsScreen() {
                 />
               </View>
 
-              <TouchableOpacity style={styles.createButton} onPress={createGroup}>
-                <Text style={styles.createButtonText}>Create Group</Text>
+              <TouchableOpacity 
+                style={[styles.createButton, loading && styles.buttonDisabled]} 
+                onPress={createGroup}
+                disabled={loading}
+              >
+                <Text style={styles.createButtonText}>
+                  {loading ? 'Creating...' : 'Create Group'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -681,5 +732,8 @@ const styles = StyleSheet.create({
   },
   dangerText: {
     color: theme.colors.secondary,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });
