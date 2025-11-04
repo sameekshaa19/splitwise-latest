@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,17 @@ import {
   TextInput,
   Modal,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Camera, Upload, X, Check, CreditCard as Edit3, Users, Utensils } from 'lucide-react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { theme } from '../styles/theme';
 import { router } from 'expo-router';
+import { OCRService } from '../services/OCRService';
+import { ExpenseService } from '../services/ExpenseService';
+import { GroupService } from '../services/GroupService';
+import { SupabaseService } from '../services/SupabaseService';
 
 interface ScannedItem {
   id: string;
@@ -30,58 +35,54 @@ interface GroupMember {
   dietary: 'vegetarian' | 'non-vegetarian' | 'both';
 }
 
-const mockMembers: GroupMember[] = [
-  { id: '1', name: 'You', dietary: 'both' },
-  { id: '2', name: 'Alex', dietary: 'vegetarian' },
-  { id: '3', name: 'Sam', dietary: 'non-vegetarian' },
-  { id: '4', name: 'Jordan', dietary: 'both' },
-];
-
 export default function ScanScreen() {
   const [showCamera, setShowCamera] = useState(false);
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [showItemModal, setShowItemModal] = useState(false);
   const [editingItem, setEditingItem] = useState<ScannedItem | null>(null);
-  const [selectedGroup] = useState('Weekend Trip');
-  const [members, setMembers] = useState<GroupMember[]>(mockMembers);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<any>(null);
+  const [members, setMembers] = useState<GroupMember[]>([]);
   const [showMembersModal, setShowMembersModal] = useState(false);
   const [editMember, setEditMember] = useState<GroupMember | null>(null);
   const [memberName, setMemberName] = useState('');
   const [memberDietary, setMemberDietary] = useState<GroupMember['dietary']>('both');
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
+  const [loading, setLoading] = useState(false);
+  const [ocrData, setOcrData] = useState<any>(null);
+  const [showGroupSelect, setShowGroupSelect] = useState(false);
 
-  // Mock OCR processing
-  const mockScanResults: ScannedItem[] = [
-    {
-      id: '1',
-      name: 'Caesar Salad',
-      price: 14.99,
-      category: 'vegetarian',
-      assignedTo: ['2'],
-    },
-    {
-      id: '2',
-      name: 'Grilled Chicken',
-      price: 22.99,
-      category: 'non-vegetarian',
-      assignedTo: ['1', '3'],
-    },
-    {
-      id: '3',
-      name: 'Garlic Bread',
-      price: 8.99,
-      category: 'vegetarian',
-      assignedTo: ['1', '2', '3', '4'],
-    },
-    {
-      id: '4',
-      name: 'Wine (Bottle)',
-      price: 28.99,
-      category: 'other',
-      assignedTo: ['1', '3', '4'],
-    },
-  ];
+  useEffect(() => {
+    loadGroups();
+  }, []);
+
+  useEffect(() => {
+    if (selectedGroup) {
+      loadGroupMembers();
+    }
+  }, [selectedGroup]);
+
+  const loadGroups = async () => {
+    const result = await GroupService.getUserGroups(SupabaseService.getCurrentUserId());
+    if (result.success && result.data) {
+      setGroups(result.data);
+      if (result.data.length > 0) {
+        setSelectedGroup(result.data[0]);
+      }
+    }
+  };
+
+  const loadGroupMembers = () => {
+    if (selectedGroup?.group_members) {
+      const mappedMembers = selectedGroup.group_members.map((m: any) => ({
+        id: m.user_id || m.id,
+        name: m.name,
+        dietary: m.dietary || 'both',
+      }));
+      setMembers(mappedMembers);
+    }
+  };
 
   const handleScanBill = () => {
     if (!permission?.granted) {
@@ -97,23 +98,69 @@ export default function ScanScreen() {
       Alert.alert('Permission required', 'Please allow access to your photo library.');
       return;
     }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false,
       quality: 0.8,
     });
-    if (!result.canceled) {
-      // In a real app, run OCR here. For now, simulate results.
-      setScannedItems(mockScanResults);
-      Alert.alert('Photo selected', 'Simulated scan has been added.');
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      await processImage(result.assets[0].uri);
     }
   };
 
-  const processScan = () => {
-    // Simulate OCR processing
+  const processImage = async (imageUri: string) => {
+    setLoading(true);
+    try {
+      const ocrResult = await OCRService.scanReceipt(imageUri);
+
+      if (ocrResult.confidence < 0.5) {
+        Alert.alert(
+          'Low Confidence',
+          'The scan quality is low. Please review and edit the items carefully.',
+          [{ text: 'OK' }]
+        );
+      }
+
+      setOcrData(ocrResult);
+
+      const items: ScannedItem[] = ocrResult.items.map((item, index) => ({
+        id: `item-${index}`,
+        name: item.name,
+        price: item.total,
+        category: item.category || 'other',
+        assignedTo: [],
+      }));
+
+      setScannedItems(items);
+      setLoading(false);
+
+      Alert.alert(
+        'Scan Complete',
+        `Found ${items.length} items. Total: ₹${ocrResult.total.toFixed(2)}. Please review and assign items to members.`
+      );
+    } catch (error: any) {
+      setLoading(false);
+      Alert.alert('Scan Failed', error.message || 'Could not process the image. Please try again or add items manually.');
+    }
+  };
+
+  const processScan = async () => {
     setShowCamera(false);
-    setScannedItems(mockScanResults);
-    Alert.alert('Success!', 'Bill scanned successfully. Please review and assign items.');
+    Alert.alert('Demo Mode', 'Camera scanning is in demo mode. Using mock data.');
+    const mockResult = OCRService.mockScan();
+    setOcrData(mockResult);
+
+    const items: ScannedItem[] = mockResult.items.map((item, index) => ({
+      id: `item-${index}`,
+      name: item.name,
+      price: item.total,
+      category: item.category || 'other',
+      assignedTo: [],
+    }));
+
+    setScannedItems(items);
   };
 
   const editItem = (item: ScannedItem) => {
@@ -156,6 +203,93 @@ export default function ScanScreen() {
     }, 0);
   };
 
+  const saveAndSplit = async () => {
+    if (scannedItems.length === 0) {
+      Alert.alert('Nothing to save', 'Please scan or upload a bill first.');
+      return;
+    }
+
+    if (!selectedGroup) {
+      Alert.alert('No Group Selected', 'Please select a group first.');
+      setShowGroupSelect(true);
+      return;
+    }
+
+    const unassignedItems = scannedItems.filter(item => item.assignedTo.length === 0);
+    if (unassignedItems.length > 0) {
+      Alert.alert(
+        'Unassigned Items',
+        `${unassignedItems.length} items are not assigned to anyone. Assign them or continue?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Continue', onPress: () => performSave() },
+        ]
+      );
+      return;
+    }
+
+    await performSave();
+  };
+
+  const performSave = async () => {
+    setLoading(true);
+    try {
+      const currentUserId = SupabaseService.getCurrentUserId();
+      const totalAmount = getTotalAmount();
+
+      const splits = scannedItems.flatMap(item =>
+        item.assignedTo.map(memberId => {
+          const member = members.find(m => m.id === memberId);
+          return {
+            userId: memberId,
+            userName: member?.name || 'Unknown',
+            amount: item.price / item.assignedTo.length,
+          };
+        })
+      );
+
+      const expenseData = {
+        description: ocrData?.vendor || 'Scanned Bill',
+        amount: totalAmount,
+        paidBy: currentUserId,
+        paidByName: 'You',
+        groupId: selectedGroup.id,
+        splitType: 'ITEM_WISE' as const,
+        type: 'scan' as const,
+        ocrConfidence: ocrData?.confidence,
+        vendor: ocrData?.vendor,
+        expenseDate: ocrData?.date || new Date().toISOString().split('T')[0],
+        tax: ocrData?.tax,
+        currency: ocrData?.currency || 'INR',
+        items: scannedItems.map(item => ({
+          name: item.name,
+          price: item.price,
+          category: item.category,
+        })),
+        splits,
+      };
+
+      const result = await ExpenseService.createExpense(expenseData);
+
+      setLoading(false);
+
+      if (result.success) {
+        Alert.alert('Success', 'Expense saved and split successfully!', [
+          { text: 'OK', onPress: () => {
+            setScannedItems([]);
+            setOcrData(null);
+            router.push('/');
+          }},
+        ]);
+      } else {
+        throw new Error(result.error || 'Failed to save expense');
+      }
+    } catch (error: any) {
+      setLoading(false);
+      Alert.alert('Error', error.message || 'Failed to save expense. Please try again.');
+    }
+  };
+
   const openMembersModalToAdd = () => {
     setEditMember(null);
     setMemberName('');
@@ -170,33 +304,37 @@ export default function ScanScreen() {
     setShowMembersModal(true);
   };
 
-  const saveMember = () => {
+  const saveMember = async () => {
     const name = memberName.trim();
     if (!name) {
       Alert.alert('Name required', 'Please enter a member name.');
       return;
     }
-    if (editMember) {
-      setMembers(prev => prev.map(m => (m.id === editMember.id ? { ...m, name, dietary: memberDietary } : m)));
-    } else {
-      const newMember: GroupMember = {
-        id: Date.now().toString(),
-        name,
-        dietary: memberDietary,
-      };
-      setMembers(prev => [newMember, ...prev]);
-    }
-    setShowMembersModal(false);
-  };
 
-  const saveAndSplit = () => {
-    if (scannedItems.length === 0) {
-      Alert.alert('Nothing to save', 'Please scan or upload a bill first.');
+    if (!selectedGroup) {
+      Alert.alert('No Group', 'Please select a group first.');
       return;
     }
-    Alert.alert('Saved', 'Your scanned items were saved. Proceed to add details.', [
-      { text: 'OK', onPress: () => router.push('/add-expense') },
-    ]);
+
+    setLoading(true);
+    try {
+      const result = await GroupService.addGroupMember(selectedGroup.id, {
+        name,
+        email: `${name.toLowerCase().replace(/\s/g, '')}@example.com`,
+        dietary: memberDietary,
+      });
+
+      if (result.success) {
+        await loadGroups();
+        setShowMembersModal(false);
+        setLoading(false);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      setLoading(false);
+      Alert.alert('Error', error.message || 'Failed to add member');
+    }
   };
 
   if (showCamera) {
@@ -233,15 +371,31 @@ export default function ScanScreen() {
     );
   }
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.accent} />
+          <Text style={styles.loadingText}>Processing...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Scan & Split</Text>
-        <Text style={styles.headerSubtitle}>Group: {selectedGroup}</Text>
+        <Text style={styles.headerSubtitle}>
+          Group: {selectedGroup?.name || 'No group selected'}
+        </Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.manageMembersBtn} onPress={openMembersModalToAdd}>
+          <TouchableOpacity
+            style={styles.manageMembersBtn}
+            onPress={() => setShowGroupSelect(true)}
+          >
             <Users size={16} color={theme.colors.primaryBg} />
-            <Text style={styles.manageMembersText}>Manage Members</Text>
+            <Text style={styles.manageMembersText}>Select Group</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -265,23 +419,29 @@ export default function ScanScreen() {
 
             <Text style={styles.orText}>or</Text>
 
-            <TouchableOpacity style={styles.manualButton}>
+            <TouchableOpacity
+              style={styles.manualButton}
+              onPress={() => router.push('/add-expense')}
+            >
               <Edit3 size={20} color="#6B7280" />
               <Text style={styles.manualButtonText}>Add Manually</Text>
             </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.scannedContent}>
-            {/* Summary */}
             <View style={styles.summaryCard}>
               <Text style={styles.summaryTitle}>Scanned Items</Text>
               <Text style={styles.summaryAmount}>₹{getTotalAmount().toFixed(2)}</Text>
               <Text style={styles.summarySubtext}>
                 {scannedItems.length} items • {members.length} people
               </Text>
+              {ocrData && (
+                <Text style={styles.confidenceText}>
+                  Confidence: {Math.round(ocrData.confidence * 100)}%
+                </Text>
+              )}
             </View>
 
-            {/* Items List */}
             <View style={styles.itemsList}>
               {scannedItems.map((item) => (
                 <View key={item.id} style={styles.itemCard}>
@@ -333,20 +493,19 @@ export default function ScanScreen() {
               ))}
             </View>
 
-            {/* Member Shares */}
             <View style={styles.sharesCard}>
               <Text style={styles.sharesTitle}>Individual Shares</Text>
-              {members.map((member) => (
-                <View key={member.id} style={styles.shareRow}>
-                  <Text style={styles.memberName}>{member.name}</Text>
-                  <Text style={styles.memberShare}>
-                    ₹{getMemberShare(member.id).toFixed(2)}
-                  </Text>
-                </View>
-              ))}
+              {members.map((member) => {
+                const share = getMemberShare(member.id);
+                return (
+                  <View key={member.id} style={styles.shareRow}>
+                    <Text style={styles.memberName}>{member.name}</Text>
+                    <Text style={styles.memberShare}>₹{share.toFixed(2)}</Text>
+                  </View>
+                );
+              })}
             </View>
 
-            {/* Actions */}
             <View style={styles.actions}>
               <TouchableOpacity style={styles.saveButton} onPress={saveAndSplit}>
                 <Check size={20} color="#FFFFFF" />
@@ -357,7 +516,6 @@ export default function ScanScreen() {
         )}
       </ScrollView>
 
-      {/* Item Edit Modal */}
       <Modal
         visible={showItemModal}
         transparent={true}
@@ -410,66 +568,41 @@ export default function ScanScreen() {
         </View>
       </Modal>
 
-      {/* Manage Members Modal */}
       <Modal
-        visible={showMembersModal}
+        visible={showGroupSelect}
         transparent={true}
         animationType="slide"
-        onRequestClose={() => setShowMembersModal(false)}
+        onRequestClose={() => setShowGroupSelect(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{editMember ? 'Edit Member' : 'Add Member'}</Text>
-              <TouchableOpacity onPress={() => setShowMembersModal(false)}>
+              <Text style={styles.modalTitle}>Select Group</Text>
+              <TouchableOpacity onPress={() => setShowGroupSelect(false)}>
                 <X size={24} color="#6B7280" />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.editForm}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Name</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="e.g., Alex"
-                  value={memberName}
-                  onChangeText={setMemberName}
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Dietary Preference</Text>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {(['vegetarian','non-vegetarian','both'] as const).map(opt => (
-                    <TouchableOpacity
-                      key={opt}
-                      style={[styles.memberChip, memberDietary === opt && styles.memberChipActive]}
-                      onPress={() => setMemberDietary(opt)}
-                    >
-                      <Text style={[styles.memberChipText, memberDietary === opt && styles.memberChipTextActive]}>
-                        {opt}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Existing members for quick edit */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Existing Members</Text>
-                <View style={styles.membersList}>
-                  {members.map(m => (
-                    <TouchableOpacity key={m.id} style={styles.memberChip} onPress={() => openMembersModalToEdit(m)}>
-                      <Text style={styles.memberChipText}>{m.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              <TouchableOpacity style={styles.modalSaveButton} onPress={saveMember}>
-                <Text style={styles.modalSaveButtonText}>{editMember ? 'Save Member' : 'Add Member'}</Text>
-              </TouchableOpacity>
-            </View>
+            <ScrollView style={styles.groupsList}>
+              {groups.map(group => (
+                <TouchableOpacity
+                  key={group.id}
+                  style={[
+                    styles.groupItem,
+                    selectedGroup?.id === group.id && styles.groupItemActive
+                  ]}
+                  onPress={() => {
+                    setSelectedGroup(group);
+                    setShowGroupSelect(false);
+                  }}
+                >
+                  <Text style={styles.groupItemName}>{group.name}</Text>
+                  <Text style={styles.groupItemMembers}>
+                    {group.group_members?.length || 0} members
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -481,6 +614,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.primaryBg,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: theme.text.onPrimary,
+    fontFamily: theme.fontFamily,
   },
   header: {
     paddingHorizontal: 24,
@@ -688,6 +832,12 @@ const styles = StyleSheet.create({
     color: theme.text.muted,
     fontFamily: theme.fontFamily,
   },
+  confidenceText: {
+    fontSize: 12,
+    color: theme.colors.secondary,
+    marginTop: 8,
+    fontFamily: theme.fontFamily,
+  },
   itemsList: {
     gap: 12,
   },
@@ -841,6 +991,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     padding: 24,
     minHeight: 300,
+    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -886,6 +1037,32 @@ const styles = StyleSheet.create({
     color: theme.colors.primaryBg,
     fontSize: 16,
     fontWeight: '700',
+    fontFamily: theme.fontFamily,
+  },
+  groupsList: {
+    maxHeight: 400,
+  },
+  groupItem: {
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: theme.colors.lightBg,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  groupItemActive: {
+    borderColor: theme.colors.accent,
+  },
+  groupItemName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.text.onLight,
+    fontFamily: theme.fontFamily,
+    marginBottom: 4,
+  },
+  groupItemMembers: {
+    fontSize: 14,
+    color: theme.text.muted,
     fontFamily: theme.fontFamily,
   },
 });

@@ -1,12 +1,23 @@
- import React from 'react';
+ import React, { useEffect } from 'react';
  import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from './_hooks/useFrameworkReady';
 import { View } from 'react-native';
 import { theme } from './styles/theme';
+import { SupabaseService } from './services/SupabaseService';
 
 export default function RootLayout() {
   useFrameworkReady();
+
+  useEffect(() => {
+    SupabaseService.initialize();
+
+    SupabaseService.ensureUser('Demo User', 'demo@example.com').then(userId => {
+      console.log('User initialized:', userId);
+    }).catch(error => {
+      console.error('Failed to initialize user:', error);
+    });
+  }, []);
 
   return (
     <>

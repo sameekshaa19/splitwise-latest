@@ -13,6 +13,7 @@ import {
 import { Plus, Users, MapPin, Calendar, IndianRupee, MoveVertical as MoreVertical, X, CreditCard as Edit3, Trash2, UserPlus } from 'lucide-react-native';
 import { theme } from '../styles/theme';
 import { GroupService } from '../services/GroupService';
+import { SupabaseService } from '../services/SupabaseService';
 
 interface Group {
   id: string;
@@ -91,7 +92,7 @@ export default function GroupsScreen() {
 
   const loadGroups = async () => {
     try {
-      const result = await GroupService.getUserGroups('currentUserId');
+      const result = await GroupService.getUserGroups(SupabaseService.getCurrentUserId());
       if (result.success && result.data) {
         // Map the data to match our Group interface
         const mappedGroups = result.data.map((group: any) => ({
@@ -140,8 +141,6 @@ export default function GroupsScreen() {
       const groupData = {
         name: newGroupName,
         description: newGroupDescription,
-        createdBy: 'currentUserId',
-        // Don't pass members here - let GroupService add the creator
       };
 
       const result = await GroupService.createGroup(groupData);
