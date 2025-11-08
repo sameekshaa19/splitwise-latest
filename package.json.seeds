@@ -1,0 +1,20 @@
+{
+  "name": "splitwise-seeds",
+  "version": "1.0.0",
+  "description": "Database seeding scripts for Splitwise clone",
+  "scripts": {
+    "seed": "ts-node scripts/runSeeds.ts",
+    "seed:supabase": "ts-node scripts/runSeeds.ts supabase",
+    "seed:local": "ts-node scripts/runSeeds.ts local",
+    "seed:all": "ts-node scripts/runSeeds.ts all",
+    "seed:minimal": "ts-node scripts/runSeeds.ts minimal",
+    "seed:json": "ts-node scripts/runSeeds.ts json",
+    "seed:sql": "ts-node scripts/runSeeds.ts sql"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0",
+    "uuid": "^9.0.0",
+    "@types/uuid": "^9.0.0"
+  }
+}
